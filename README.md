@@ -27,7 +27,7 @@ pip install git+https://github.com/cedadev/rackit.git
   * Subclasses of `rackit.Connection` determine how API requests should be made, including authentication.
   * Subclasses of `rackit.ResourceManager` are responsible for managing resource instances, including
     handling pagination and the extraction of data from responses.
-  * Subclasses of `rackit.Resource` are used to define properties for each available the resource.
+  * Subclasses of `rackit.Resource` are used to define properties for each available resource.
     Instances of subclasses of this class are returned by managers to represent resources on the server.
   * `RootResource`, `NestedResource`, `EmbeddedResource` and `EmbeddedResourceList` are used to
     connect resources to the connection and to each other.
@@ -283,9 +283,11 @@ print(len(list(mkjpryor_repos)))
 #> 10
 ```
 
+## Advanced usage - custom attributes
+
 Let's see if we can replace the final custom method on our `RepositoryManager` - `for_authenticated_user`.
 This is slightly more involved as it doesn't involve a manager (the endpoint doesn't really conform to
-REST), but it is still possible quite easily:
+REST), but it is still possible quite easily by directly returning a resource instance:
 
 ```python
 class GitHub(Connection):
@@ -348,7 +350,7 @@ print(repository)
 ```
 
 We can also update a resource. This can be done in one of two ways, both of which return
-a **new instance of the resource***. Once a resource instance exists, it is effectively immutable.
+a **new instance of the resource**. Once a resource instance exists, it is effectively immutable.
 
 Using our GitHub example, the following statements make the equivalent update. However one requires
 the resource instance to already exist, whereas the other requires only the identifier:
@@ -397,7 +399,7 @@ the manager:
 repository._delete()
 
 # Using the manager
-github.repos.delete("mkjpryor-stfc/test-update-name")
+github.repos.delete("mkjpryor-stfc/my-test-repo")
 
 #> API request: DELETE https://api.github.com/repos/mkjpryor-stfc/my-test-repo
 ```
