@@ -4,6 +4,8 @@ Module containing property descriptors for attaching resources in rackit.
 
 import importlib
 
+from . import resource
+
 
 class CachedProperty:
     """
@@ -24,6 +26,19 @@ class CachedProperty:
 
 #: Decorator that caches the result of an expensive computed property.
 cached_property = CachedProperty
+
+
+class Endpoint(CachedProperty):
+    """
+    Property descriptor for attaching an unmanaged resource to a connection.
+    """
+    def __init__(self, resource_cls):
+        self.resource_cls = resource_cls
+        super().__init__(self.make_instance)
+
+    def make_instance(self, instance):
+        # Just return a lazy instance of the resource using the connection
+        return self.resource_cls(instance, dict(), True)
 
 
 class ResourceManagerDescriptor(CachedProperty):
@@ -99,15 +114,46 @@ class EmbeddedResource(CachedProperty):
         self.source_name = source_name
         super().__init__(self.get_resource)
 
+    def get_related_manager(self, instance):
+        # From the instance, get a related manager for the resource class
+        # This depends on whether the instance is a managed or unmanaged resource
+        if isinstance(instance, resource.Resource):
+            # For managed resources, use the instance's manager to get a related manager
+            manager = instance._manager.related_manager(self.resource_cls)
+        else:
+            # For unmanaged resources, use the connection to get a root manager
+            manager = instance._connection.root_manager(self.resource_cls)
+        if manager:
+            return manager
+        else:
+            raise RuntimeError('Unable to locate related manager.')
+
+    def get_connection(self, instance):
+        # From the instance, get a connection for the related instance
+        if isinstance(instance, resource.Resource):
+            # For managed instances, we have to go via the manager
+            return instance._manager.connection
+        else:
+            return instance._connection
+
     def get_resource(self, instance):
-        # If the data is empty, return None now - we don't need to do anything
+        # If the data is empty, return now - we don't need to do anything
         data = instance[self.source_name or self.name]
         if not data:
             return None
-        # Get the related manager for the resource
-        manager = instance._manager.related_manager(self.resource_cls)
-        # Return a partial resource using the embedded data
-        return manager.make_instance(data, True)
+        if issubclass(self.resource_cls, resource.Resource):
+            # If the resource is managed, try to get a related manager to make the instance
+            manager = self.get_related_manager(instance)
+            # Return a partial resource using the embedded data
+            return manager.make_instance(data, True)
+        else:
+            # If the resource class is an unmanaged resource, create an instance
+            # directly with the connection extracted from the instance
+            return self.resource_cls(
+                self.get_connection(instance),
+                data,
+                True
+            )
 
 
 class EmbeddedResourceList(EmbeddedResource):
@@ -115,9 +161,19 @@ class EmbeddedResourceList(EmbeddedResource):
     Property descriptor for an embedded list of resource instances, i.e. where a list
     of complete or partial resource instances is embedded within another resource.
     """
+    def get_unmanaged_list(self, instance):
+        connection = self.get_connection(instance)
+        return [self.resource_cls(connection, datum, True) for datum in data]
+
+    def get_managed_list(self, instance, data):
+        manager = self.get_related_manager(instance)
+        return [manager.make_instance(datum, True) for datum in data]
+
     def get_resource(self, instance):
-        manager = instance._manager.related_manager(self.resource_cls)
-        return [
-            manager.make_instance(data, True)
-            for data in instance[self.source_name or self.name]
-        ]
+        data = instance[self.source_name or self.name]
+        if not data:
+            return []
+        if issubclass(self.resource_cls, resource.Resource):
+            return self.get_managed_list(instance, data)
+        else:
+            return self.get_unmanaged_list(instance, data)

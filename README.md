@@ -123,13 +123,13 @@ from rackit import Connection, Resource, ResourceManager, RootResource
 
 class RepositoryManager(ResourceManager):
     def for_authenticated_user(self, **params):
-        return self._fetch_all("/user/repos", **params)
+        return self._fetch_all("/user/repos", params)
 
     def for_user(self, username, **params):
-        return self._fetch_all("/user/{}/repos".format(username), **params)
+        return self._fetch_all("/user/{}/repos".format(username), params)
 
     def for_org(self, org, **params):
-        return self._fetch_all("/orgs/{}/repos".format(org), **params)
+        return self._fetch_all("/orgs/{}/repos".format(org), params)
 
 
 class Repository(Resource):

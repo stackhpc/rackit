@@ -6,8 +6,10 @@ import logging
 import re
 
 import requests
+from requests.exceptions import RequestException, HTTPError
 
 from .cache import MemoryCache
+from .errors import ConnectionError, ApiError
 
 
 class Connection:
@@ -54,6 +56,17 @@ class Connection:
                 return None
         return self.root_managers[resource_cls]
 
+    def prepare_url(self, url):
+        """
+        Prepare the given URL for making a request.
+        """
+        if re.match('https?://', url) is not None:
+            # If the URL is absolute, use it as it is
+            return url
+        else:
+            # Otherwise prepend the API base URL
+            return self.api_base + url
+
     def prepare_request(self, request):
         """
         Make any required modifications to a request before sending.
@@ -62,21 +75,30 @@ class Connection:
         """
         return request
 
-    def log_request(self, request):
+    def extract_error_message(self, response):
         """
-        Make a log entry for the given request.
+        Extract an error message from the given error response and return it.
         """
-        self.log.debug("API request: {} {}".format(request.method, request.url))
+        # By default, just use the response text
+        return response.text
 
     def process_response(self, response):
         """
         Process the given response before returning it.
 
-        This method should raise if the response is not successful, as other parts of the
-        code rely on a successful response.
+        This method should raise an error from :py:mod:`.errors` if the response is
+        unsuccessful, as other parts of the code rely on a successful response.
         """
-        response.raise_for_status()
-        return response
+        self.log.debug("API request: \"{} {}\" {}".format(
+            response.request.method,
+            response.request.url,
+            response.status_code
+        ))
+        # Convert any HTTP errors to rackit exceptions
+        if response.status_code >= 400:
+            raise ApiError.Code(response.status_code)(self.extract_error_message(response))
+        else:
+            return response
 
     def api_request(self, method, url, *args, **kwargs):
         """
@@ -84,17 +106,17 @@ class Connection:
 
         Accepts the same parameters as the corresponding requests method.
         """
-        # Use absolute URLs as-is, otherwise treat as a path and prepend the API base URL
-        if not re.match('https?://', url):
-            url = self.api_base + url
+        url = self.prepare_url(url)
         request = requests.Request(method.upper(), url, *args, **kwargs)
         # First, prepare the request using the session
         request = self.session.prepare_request(request)
         # Then apply any connection-specific changes
         request = self.prepare_request(request)
-        # Log the request before sending it
-        self.log_request(request)
-        response = self.session.send(request)
+        # Actually send the request
+        try:
+            response = self.session.send(request)
+        except RequestException as exc:
+            raise ConnectionError(str(exc)) from exc
         # Process and return the response
         return self.process_response(response)
 

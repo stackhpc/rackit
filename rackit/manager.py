@@ -4,6 +4,8 @@ Module containing the resource manager base class for rackit.
 
 import importlib
 
+from .errors import NotFound
+
 
 class ResourceManager:
     """
@@ -55,7 +57,6 @@ class ResourceManager:
                 return manager
             else:
                 parent = parent._parent
-        raise RuntimeError('Unable to locate manager for embedded resource')
 
     def prepare_url(self, resource_or_key = None, action = ''):
         """
@@ -121,9 +122,9 @@ class ResourceManager:
         """
         # This is split in case subclasses need to customise the list URL
         # on a case-by-case basis
-        return self._fetch_all(self.prepare_url(), **params)
+        return self._fetch_all(self.prepare_url(), params)
 
-    def _fetch_all(self, url, partial = None, **params):
+    def _fetch_all(self, url, params, partial = None):
         """
         Return a generator of resource instances from the given URL.
         """
@@ -140,34 +141,35 @@ class ResourceManager:
             if url is None:
                 break
 
-    def get(self, key, lazy = True, use_cache = True):
+    def get(self, key, force = False):
         """
         Return a single resource instance by primary key.
         """
-        # Try the cache first, unless told not to
-        if use_cache:
+        if force:
+            # If the fetch is being forced, load the resource
+            return self._load(self.prepare_url(key), force)
+        else:
+            # If the fetch is not being forced, first try the cache
+            # If the instance is not in the cache, return a lazy instance
+            # that is fetched on first access for anything other than the pk
+            # This allows us to avoid an unnecessary network request in the case
+            # where the resource is just being used to fetch a nested resource
+            # or call an action using a fluent API
             try:
                 return self.cache.get(key)
             except KeyError:
-                pass
-        # Defer loading of the instance until it is actually required
-        # This allows us to avoid an unnecessary network request in the case
-        # where the resource is just being used to fetch a nested resource
-        if lazy:
-            return self.make_instance(
-                { self.resource_cls._opts.primary_key_field: key },
-                partial = True
-            )
-        # Otherwise fetch the instance from the API
-        return self._load(self.prepare_url(key), use_cache)
+                return self.make_instance(
+                    { self.resource_cls._opts.primary_key_field: key },
+                    partial = True
+                )
 
-    def _load(self, path, use_cache = True):
+    def _load(self, path, force = False):
         """
         Return a single resource instance loaded from the given path.
         """
         # This is split to allow a lazy resource to exist at a different path than the canonical path
         # The path is used as a cache alias, so check if it is present
-        if use_cache:
+        if not force:
             try:
                 return self.cache.get(path)
             except KeyError:
@@ -183,21 +185,26 @@ class ResourceManager:
         # This method is used by __getattr__ to produce the find_by_<attr>
         # methods that allow fetching a single resource instance by an attribute
         # value
-        def find_by_attr(manager, value, params = {}, use_cache = True):
+        def find_by_attr(manager, value, as_params = True, force = False):
             # First, try to find the resource in the cache
-            if use_cache:
+            if not force:
                 try:
                     return manager.cache.get((attr, value))
                 except KeyError:
                     pass
+            # Use the attribute value as parameters for the fetch if requested
+            params = { attr: value } if as_params else {}
             try:
-                return next(
+                result = next(
                     resource
                     for resource in manager.all(**params)
                     if getattr(resource, attr) == value
                 )
             except StopIteration:
                 return None
+            else:
+                # Cache the result with the attribute value of the alias
+                return self.cache.put(result, aliases = [(attr, value)])
         return lambda *args, **kwargs: find_by_attr(self, *args, **kwargs)
 
     def __getattr__(self, name):
@@ -209,7 +216,7 @@ class ResourceManager:
             raise AttributeError(message)
         return self.find_by_ATTR(name[8:])
 
-    def dereference_params(self, params):
+    def prepare_params(self, params):
         """
         Prepare the parameters by de-referencing any aliases.
         """
@@ -218,21 +225,31 @@ class ResourceManager:
             for k, v in params.items()
         }
 
-    def create(self, **params):
+    def create(self, params = None, **kwargs):
         """
         Create a new resource instance with the given parameters.
         """
-        params = self.dereference_params(params)
+        # Combine the params and kwargs to get the parameters
+        params = params.copy() if params else dict()
+        params.update(kwargs)
+        params = self.prepare_params(params)
         response = self.connection.api_post(self.prepare_url(), json = params)
-        return self.make_instance(self.extract_one(response))
+        # Return a lazy instance, in case the whole resource is not known
+        return self.make_instance(self.extract_one(response), True)
 
-    def update(self, resource_or_key, **params):
+    def update(self, resource_or_key, params = None, **kwargs):
         """
         Update the given resource instance or key with the given parameters.
         """
-        params = self.dereference_params(params)
+        # Combine the params and kwargs to get the parameters
+        params = params.copy() if params else dict()
+        params.update(kwargs)
+        params = self.prepare_params(params)
         endpoint = self.prepare_url(resource_or_key)
-        response = self.connection.api_patch(endpoint, json = params)
+        # Decide which verb to use to update the resource
+        verb = getattr(self.resource_cls._opts, 'update_http_verb', 'patch')
+        method = getattr(self.connection, 'api_{}'.format(verb.lower()))
+        response = method(endpoint, json = params)
         return self.make_instance(self.extract_one(response))
 
     def delete(self, resource_or_key):
@@ -242,10 +259,15 @@ class ResourceManager:
         self.connection.api_delete(self.prepare_url(resource_or_key))
         self.cache.evict(resource_or_key)
 
-    def action(self, resource_or_key, action, **params):
+    def action(self, resource_or_key, action, params = None, **kwargs):
         """
         Execute an action on the given resource or key with the given params.
         """
+        params = params.copy() if params else dict()
+        params.update(kwargs)
         endpoint = self.prepare_url(resource_or_key, action)
-        response = self.connection.api_post(endpoint, json = params)
-        return self.make_instance(self.extract_one(response))
+        self.connection.api_post(endpoint, json = params)
+        # When the action is successful, evict the resource from the cache
+        # This type of endpoint is not restful, so cannot be relied upon to
+        # return a resource instance in the response
+        self.cache.evict(resource_or_key)
