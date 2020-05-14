@@ -3,6 +3,7 @@ from .descriptors import (
     CachedProperty,
     cached_property,
     Endpoint,
+    NestedEndpoint,
     RootResource,
     NestedResource,
     EmbeddedResource,

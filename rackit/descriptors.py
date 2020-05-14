@@ -41,6 +41,31 @@ class Endpoint(CachedProperty):
         return self.resource_cls(instance, dict(), True)
 
 
+class NestedEndpoint(Endpoint):
+    """
+    Property descriptor for attaching an unmanaged resource to another resource.
+    """
+    def get_connection(self, instance):
+        if isinstance(instance, resource.Resource):
+            # For managed instances, we have to go via the manager
+            return instance._manager.connection
+        else:
+            return instance._connection
+
+    def make_instance(self, instance):
+        # Instance is a resource in this case
+        # The resource path has the instance path prepended
+        return self.resource_cls(
+            self.get_connection(instance),
+            dict(),
+            True,
+            "{}{}".format(
+                instance._path.rstrip('/'),
+                self.resource_cls._opts.endpoint
+            )
+        )
+
+
 class ResourceManagerDescriptor(CachedProperty):
     """
     Property descriptor for attaching a resource manager to an object.

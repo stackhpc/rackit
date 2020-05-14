@@ -16,6 +16,11 @@ class Connection:
     """
     Class for an authenticated connection.
     """
+    #: The path prefix for this connection, e.g. a specific version
+    #: This is added to paths that are given to the ``api_*`` methods unless
+    #: they already start with it
+    path_prefix = None
+
     def __init__(self, url, session, cache_cls = MemoryCache):
         self.session = session
         self.api_base = url.rstrip('/')
@@ -60,12 +65,15 @@ class Connection:
         """
         Prepare the given URL for making a request.
         """
+        # If the URL is absolute, then use it as-is
         if re.match('https?://', url) is not None:
-            # If the URL is absolute, use it as it is
             return url
-        else:
-            # Otherwise prepend the API base URL
-            return self.api_base + url
+        # Treat the url as a path now
+        # If it doesn't already start with the path prefix, prepend it
+        if self.path_prefix and not url.startswith(self.path_prefix):
+            url = self.path_prefix + url
+        # Prepend the API base URL
+        return self.api_base + url
 
     def prepare_request(self, request):
         """

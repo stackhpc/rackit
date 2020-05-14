@@ -135,8 +135,8 @@ class ResourceManager:
             # Extract the data and the next URL from the response
             results, url = self.extract_list(response)
             # Yield from the current page
-            for result in results:
-                yield self.make_instance(result, partial)
+            # We might as well make sure that we have cached everything that we have fetched
+            yield from [self.make_instance(result, partial) for result in results]
             # If there is no next page, we are done
             if url is None:
                 break
@@ -247,8 +247,8 @@ class ResourceManager:
         params = self.prepare_params(params)
         endpoint = self.prepare_url(resource_or_key)
         # Decide which verb to use to update the resource
-        verb = getattr(self.resource_cls._opts, 'update_http_verb', 'patch')
-        method = getattr(self.connection, 'api_{}'.format(verb.lower()))
+        verb = self.resource_cls._opts.update_http_verb.lower()
+        method = getattr(self.connection, 'api_{}'.format(verb))
         response = method(endpoint, json = params)
         return self.make_instance(self.extract_one(response))
 

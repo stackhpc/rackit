@@ -117,11 +117,14 @@ class UnmanagedResource(metaclass = ResourceMeta):
         aliases = dict()
         #: A dictionary of defaults in the form ``key => default``
         defaults = dict()
+        #: The HTTP verb used for updates
+        update_http_verb = 'PATCH'
 
-    def __init__(self, connection, data, partial = False):
+    def __init__(self, connection, data, partial = False, path = None):
         self._connection = connection
         self._data = data
         self._partial = partial
+        self._path = path or self._opts.endpoint
 
     def __hash__(self):
         # Take a hash of the data
@@ -131,15 +134,13 @@ class UnmanagedResource(metaclass = ResourceMeta):
         # Two resources are equal if they are of the same type with the same data
         return isinstance(other, type(self)) and self._data == other._data
 
-    def _fetch(self, path = None):
+    def _fetch(self):
         """
         Fetch the data from the specified endpoint.
         """
-        # If no path is given, use the endpoint
-        path = path or self._opts.endpoint
-        # If there is no endpoint, just return the current data rather than fetching
-        if path:
-            return self._connection.api_get(path).json()
+        # If there is no path, just return the current data rather than fetching
+        if self._path:
+            return self._connection.api_get(self._path).json()
         else:
             return self._data
 
@@ -179,6 +180,32 @@ class UnmanagedResource(metaclass = ResourceMeta):
     def __repr__(self):
         klass = self.__class__
         return '{}.{}({})'.format(klass.__module__, klass.__qualname__, repr(self._data))
+
+    def _update(self, params = None, **kwargs):
+        """
+        Update the resource with the given parameters.
+        """
+        # Combine the params and kwargs to get the parameters
+        params = params.copy() if params else dict()
+        params.update(kwargs)
+        # Decide which verb to use to update the resource
+        verb = self._opts.update_http_verb.lower()
+        method = getattr(self._connection, 'api_{}'.format(verb))
+        response = method(self._path, json = params)
+        return self.__class__(self._connection, response.json(), path = self._path)
+
+    def _delete(self, resource_or_key):
+        """
+        Delete the given resource instance or key.
+        """
+        self._connection.api_delete(self._path)
+
+    def _as_dict(self):
+        # If the instance is partial, force a fetch before returning
+        if self._partial:
+            self._data = self._fetch()
+            self._partial = False
+        return copy.deepcopy(self._data)
 
 
 class Resource(UnmanagedResource):
@@ -230,11 +257,11 @@ class Resource(UnmanagedResource):
         """
         return self[self._opts.primary_key_field]
 
-    def _fetch(self, path = None):
+    def _fetch(self):
         # Use the manager to fetch the instance instead of the connection
         # This allows us to benefit from caching, but we have to be careful to take an
         # independent copy of the data in case it did come from cache
-        return self._manager._load(path or self._path)._data.copy()
+        return self._manager._load(self._path)._data.copy()
 
     def _nested_manager(self, resource_cls):
         """
