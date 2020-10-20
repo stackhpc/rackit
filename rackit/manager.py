@@ -17,26 +17,6 @@ class ResourceManager:
         self.cache = cache
         self.parent = parent
 
-    def related_resource(self, resource_cls):
-        """
-        Return the related resource class for the given resource class or import string.
-
-        If an import string is given but doesn't have a module, it is treated as relative
-        to ``self.resource_cls``.
-        """
-        # First, resolve the resource class
-        if not isinstance(resource_cls, str):
-            return resource_cls
-        if '.' in resource_cls:
-            # If there is a dot, assume it has a module
-            module_name, class_name = resource_cls.rsplit('.', maxsplit = 1)
-        else:
-            # If not, use the module from our resource class
-            module_name = self.resource_cls.__module__
-            class_name = resource_cls
-        module = importlib.import_module(module_name)
-        return getattr(module, class_name)
-
     def related_manager(self, resource_cls):
         """
         Return the related manager for the given resource class.
@@ -44,7 +24,6 @@ class ResourceManager:
         The class can be given as a type or an import string. If the import
         string has no module, it is treated as relative to ``self.resource_cls``.
         """
-        resource_cls = self.related_resource(resource_cls)
         # If the connection has a root manager for the resource, use that
         root = self.connection.root_manager(resource_cls)
         if root:
@@ -101,6 +80,17 @@ class ResourceManager:
         """
         return response.json()
 
+    def canonical_manager(self, data):
+        """
+        Return the canonical manager for the resource represented by this manager.
+        This can be based on the given data if required.
+
+        This ensures that there is a canonical instance of each resource even if they
+        are fetched by different managers initially.
+        """
+        # By default, return the root manager if there is one
+        return self.connection.root_manager(self.resource_cls) or self
+
     def make_instance(self, data, partial = False, aliases = None):
         """
         Return a resource instance for the given data.
@@ -108,7 +98,7 @@ class ResourceManager:
         # If there is a root manager for the same resource, use that instead of self
         # This ensures that there is a canonical instance of each resource, even
         # if it is initially fetched as a nested resource
-        manager = self.connection.root_manager(self.resource_cls) or self
+        manager = self.canonical_manager(data)
         resource = self.resource_cls(manager, data, partial)
         # Don't cache partial resources
         if partial:
@@ -145,9 +135,11 @@ class ResourceManager:
         """
         Return a single resource instance by primary key.
         """
+        # The canonical path is the main cache key
+        path = self.prepare_url(key)
         if force:
             # If the fetch is being forced, load the resource
-            return self._load(self.prepare_url(key), force)
+            return self._load(path, force)
         else:
             # If the fetch is not being forced, first try the cache
             # If the instance is not in the cache, return a lazy instance
@@ -156,7 +148,7 @@ class ResourceManager:
             # where the resource is just being used to fetch a nested resource
             # or call an action using a fluent API
             try:
-                return self.cache.get(key)
+                return self.cache.get(path)
             except KeyError:
                 return self.make_instance(
                     { self.resource_cls._opts.primary_key_field: key },
@@ -256,8 +248,10 @@ class ResourceManager:
         """
         Delete the given resource instance or key.
         """
-        self.connection.api_delete(self.prepare_url(resource_or_key))
-        self.cache.evict(resource_or_key)
+        # The canonical path is the main cache key
+        endpoint = self.prepare_url(resource_or_key)
+        self.connection.api_delete(endpoint)
+        self.cache.evict(endpoint)
 
     def action(self, resource_or_key, action, params = None, **kwargs):
         """
@@ -270,4 +264,5 @@ class ResourceManager:
         # When the action is successful, evict the resource from the cache
         # This type of endpoint is not restful, so cannot be relied upon to
         # return a resource instance in the response
-        self.cache.evict(resource_or_key)
+        # The canonical endpoint is the cache key
+        self.cache.evict(self.prepare_url(resource_or_key))

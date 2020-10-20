@@ -40,11 +40,9 @@ class MemoryCache:
         """
         Set a cache entry for the given resource and return it.
         """
-        # The main cache key is the primary key of the resource
-        key = str(resource._primary_key)
+        # The main cache key is the canonical path for the resource
+        key = resource._path
         self.instances[key] = resource
-        # Set the canonical URL for the resource as an alias
-        self.aliases.update({ resource._path: key })
         # If the resource has additional cache keys defined, set aliases for them
         self.aliases.update({
             (name, getattr(resource, name)): key
@@ -63,7 +61,7 @@ class MemoryCache:
         """
         from .resource import Resource
         if isinstance(resource_or_key, Resource):
-            key = resource_or_key._primary_key
+            key = resource_or_key._path
         else:
             key = resource_or_key
         return self.instances.pop(str(key), None)

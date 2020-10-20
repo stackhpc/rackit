@@ -6,6 +6,8 @@ from .descriptors import (
     NestedEndpoint,
     RootResource,
     NestedResource,
+    RelatedResource,
+    RelatedResourceList,
     EmbeddedResource,
     EmbeddedResourceList
 )

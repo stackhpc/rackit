@@ -244,8 +244,8 @@ class Resource(UnmanagedResource):
         self._nested_managers = {}
 
     def __hash__(self):
-        # We can just use the hash of the primary key
-        return hash(self._primary_key)
+        # We can just use the hash of the canonical path
+        return hash(self._path)
 
     @property
     def _primary_key(self):
