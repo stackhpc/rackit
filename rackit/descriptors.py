@@ -203,8 +203,6 @@ class RelatedResource(ResourceClassDescriptor):
             return instance._connection
 
     def get_resource(self, instance):
-        print(self)
-        print(instance)
         data = self.get_data(instance)
         if not data:
             return None
