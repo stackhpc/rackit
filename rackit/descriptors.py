@@ -203,6 +203,8 @@ class RelatedResource(ResourceClassDescriptor):
             return instance._connection
 
     def get_resource(self, instance):
+        print(self)
+        print(instance)
         data = self.get_data(instance)
         if not data:
             return None
@@ -226,7 +228,7 @@ class EmbeddedResource(RelatedResource):
     Property descriptor for an embedded resource instance, i.e. where a full or partial
     instance of a resource is embedded within another resource.
     """
-    def get_data(self):
+    def get_data(self, instance):
         try:
             return instance[self.source_field or self.name]
         except KeyError:
