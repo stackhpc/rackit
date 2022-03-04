@@ -108,21 +108,64 @@ class Connection:
         else:
             return response
 
-    def api_request(self, method, url, *args, **kwargs):
+    def api_request(
+        self,
+        method,
+        url,
+        params = None,
+        data = None,
+        headers = None,
+        cookies = None,
+        files = None,
+        auth = None,
+        timeout = None,
+        allow_redirects = True,
+        proxies = None,
+        hooks = None,
+        stream = None,
+        verify = None,
+        cert = None,
+        json = None
+    ):
         """
         Make an API request to the given url, which may be just a path, and return the response object.
 
         Accepts the same parameters as the corresponding requests method.
         """
         url = self.prepare_url(url)
-        request = requests.Request(method.upper(), url, *args, **kwargs)
+        request = requests.Request(
+            method = method.upper(),
+            url = url,
+            headers = headers,
+            files = files,
+            data = data or {},
+            json = json,
+            params = params or {},
+            auth = auth,
+            cookies = cookies,
+            hooks = hooks
+        )
         # First, prepare the request using the session
         request = self.session.prepare_request(request)
         # Then apply any connection-specific changes
         request = self.prepare_request(request)
+        # Calculate the send kwargs
+        send_kwargs = {
+            'timeout': timeout,
+            'allow_redirects': allow_redirects,
+        }
+        send_kwargs.update(
+            self.session.merge_environment_settings(
+                request.url,
+                proxies or {},
+                stream,
+                verify,
+                cert
+            )
+        )
         # Actually send the request
         try:
-            response = self.session.send(request)
+            response = self.session.send(request, **send_kwargs)
         except RequestException as exc:
             raise ConnectionError(str(exc)) from exc
         # Process and return the response
