@@ -72,7 +72,7 @@ class ResourceManager:
         Extract a list of results and a next URL from a response, as a tuple.
         """
         # Override this to extract a list from the response data
-        return response.json(), None
+        return response.json(), None, {}
 
     def extract_one(self, response):
         """
@@ -123,7 +123,7 @@ class ResourceManager:
         while True:
             response = self.connection.api_get(url, params = params)
             # Extract the data and the next URL from the response
-            results, url = self.extract_list(response)
+            results, url, params = self.extract_list(response)
             # Yield from the current page
             # We might as well make sure that we have cached everything that we have fetched
             yield from [self.make_instance(result, partial) for result in results]

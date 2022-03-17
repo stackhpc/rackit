@@ -176,7 +176,7 @@ class GitHubResourceManager(ResourceManager):
     def extract_list(self, response):
         # Extract the url for the next page from the Link header
         next_page = response.links.get('next', {}).get('url')
-        return response.json(), next_page
+        return response.json(), next_page, {}
 
 
 class GitHubResource(Resource):
