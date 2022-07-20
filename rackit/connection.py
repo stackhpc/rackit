@@ -159,7 +159,10 @@ class Connection:
                 request.url,
                 proxies or {},
                 stream,
-                verify,
+                # Until https://github.com/psf/requests/issues/3829 is fixed, we must
+                # specifically respect verify from the session if not specified for
+                # the request in order to disregard the REQUESTS_CA_BUNDLE environment
+                verify if verify is not None else self.session.verify,
                 cert
             )
         )
